@@ -5,8 +5,15 @@ import math
 
 
 class BotnetTransformer(nn.Module):
-    def __init__(self, input_dim, d_model=256, n_heads=8,
-                 n_layers=3, dropout=0.3):
+    def __init__(
+        self,
+        input_dim,
+        num_classes,
+        d_model=256,
+        n_heads=8,
+        n_layers=3,
+        dropout=0.3,
+    ):
         super().__init__()
         self.input_proj  = nn.Linear(input_dim, d_model)
         self.pos_enc     = PositionalEncoding(d_model, dropout)
@@ -23,7 +30,7 @@ class BotnetTransformer(nn.Module):
             nn.Linear(d_model, 128),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(128, 1)
+            nn.Linear(128, num_classes)
         )
 
     def forward(self, x):
@@ -31,7 +38,7 @@ class BotnetTransformer(nn.Module):
         x = self.pos_enc(x)
         x = self.transformer(x)
         x = x.mean(dim=1)
-        return self.classifier(x).squeeze(-1)
+        return self.classifier(x)
 
 
 class PositionalEncoding(nn.Module):

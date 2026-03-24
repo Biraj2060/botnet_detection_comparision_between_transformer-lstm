@@ -1,79 +1,64 @@
-# evaluate_properly.py
+import json
+import os
+
 import numpy as np
-import torch
-import pickle
-from sklearn.metrics import (classification_report,
-                             confusion_matrix,
-                             f1_score, roc_auc_score)
-from src.preprocess import load_data, clean_data, preprocess
-from src.train      import make_sequences, make_loader
-from src.model      import BotnetTransformer
-from src.cnn_lstm   import BotnetCNNLSTM
-from config         import (MODEL_PATH, CNNLSTM_PATH,
-                            D_MODEL, N_HEADS, N_LAYERS,
-                            DROPOUT, THRESHOLD)
+from sklearn.metrics import classification_report
 
-device = torch.device('cpu')
+from config import (
+    CLASS_NAMES,
+    CNNLSTM_METRICS_PATH,
+    CNNLSTM_PRED_PATH,
+    RESULTS_PATH,
+    SVM_METRICS_PATH,
+    SVM_PRED_PATH,
+    TRANSFORMER_METRICS_PATH,
+    TRANSFORMER_PRED_PATH,
+)
 
-print("Loading data...")
-df = load_data()
-df = clean_data(df)
-_, _, X_test, _, _, y_test, _, n_features = preprocess(df)
 
-X_te_s, y_te_s = make_sequences(X_test, y_test)
-test_loader    = make_loader(X_te_s, y_te_s, shuffle=False)
+MODEL_FILES = {
+    "Transformer": (TRANSFORMER_METRICS_PATH, TRANSFORMER_PRED_PATH),
+    "CNN-LSTM": (CNNLSTM_METRICS_PATH, CNNLSTM_PRED_PATH),
+    "SVM": (SVM_METRICS_PATH, SVM_PRED_PATH),
+}
 
-def evaluate(model, loader, name):
-    model.eval()
-    probs_all, labels_all = [], []
-    with torch.no_grad():
-        for xb, yb in loader:
-            probs = torch.sigmoid(
-                model(xb)).cpu().numpy()
-            probs_all.extend(probs)
-            labels_all.extend(yb.numpy())
 
-    probs_all  = np.array(probs_all)
-    labels_all = np.array(labels_all).astype(int)
-    preds      = (probs_all > THRESHOLD).astype(int)
+def print_model_report(model_name: str, metrics_path: str, pred_path: str) -> None:
+    if not os.path.exists(metrics_path) or not os.path.exists(pred_path):
+        print(f"{model_name}: missing artifacts, train the model first.")
+        return
 
-    cm         = confusion_matrix(labels_all, preds)
-    tn, fp, fn, tp = cm.ravel()
+    with open(metrics_path, "r", encoding="utf-8") as handle:
+        metrics = json.load(handle)
+    preds = np.load(pred_path, allow_pickle=True)
+    y_true = preds["y_true"]
+    y_pred = preds["y_pred"]
 
-    print(f"\n{'='*55}")
-    print(f"  {name} — Detailed Evaluation")
-    print(f"{'='*55}")
-    print(f"\n  Test set distribution:")
-    print(f"  Normal : {(labels_all==0).sum():,}")
-    print(f"  Attack : {(labels_all==1).sum():,}")
-    print(f"  Ratio  : "
-          f"{(labels_all==1).sum()/(labels_all==0).sum():.1f}:1")
+    print("\n" + "=" * 72)
+    print(f"  {model_name} - Detailed Multiclass Evaluation")
+    print("=" * 72)
+    print(
+        f"  Accuracy={metrics['accuracy']:.4f}  "
+        f"Macro-F1={metrics['macro_f1']:.4f}  "
+        f"Weighted-F1={metrics['weighted_f1']:.4f}  "
+        f"Top-3={metrics['top3_accuracy']:.4f}"
+    )
+    print(
+        f"  Macro ROC-AUC={metrics['macro_roc_auc_ovr']:.4f}  "
+        f"Macro PR-AP={metrics['macro_pr_ap']:.4f}  "
+        f"Inference={metrics['inference_ms_per_sample']:.4f} ms/sample"
+    )
+    print("\nPer-class report:")
+    print(classification_report(y_true, y_pred, target_names=CLASS_NAMES, zero_division=0))
 
-    print(f"\n  Classification report:")
-    print(classification_report(
-        labels_all, preds,
-        target_names=['Normal', 'Attack']))
 
-    print(f"  Confusion matrix breakdown:")
-    print(f"  TN correct normal   : {tn:,}")
-    print(f"  FP normal as attack : {fp:,}  "
-          f"(false alarm rate: {fp/(tn+fp)*100:.1f}%)")
-    print(f"  FN missed attack    : {fn:,}  "
-          f"(miss rate: {fn/(fn+tp)*100:.1f}%)")
-    print(f"  TP correct attack   : {tp:,}")
-    print(f"\n  ROC AUC : "
-          f"{roc_auc_score(labels_all, probs_all):.4f}")
-    print(f"{'='*55}")
+def main() -> None:
+    for model_name, (metrics_path, pred_path) in MODEL_FILES.items():
+        print_model_report(model_name, metrics_path, pred_path)
 
-print("\nLoading Transformer...")
-t_model = BotnetTransformer(
-    n_features, D_MODEL, N_HEADS, N_LAYERS, DROPOUT)
-t_model.load_state_dict(
-    torch.load(MODEL_PATH, map_location=device))
-evaluate(t_model, test_loader, 'Transformer')
+    if os.path.exists(RESULTS_PATH):
+        print("\nSaved summary:", RESULTS_PATH)
 
-print("\nLoading CNN-LSTM...")
-c_model = BotnetCNNLSTM(n_features, DROPOUT)
-c_model.load_state_dict(
-    torch.load(CNNLSTM_PATH, map_location=device))
-evaluate(c_model, test_loader, 'CNN-LSTM')
+
+if __name__ == "__main__":
+    main()

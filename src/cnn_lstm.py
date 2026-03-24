@@ -4,7 +4,7 @@ import torch.nn as nn
 
 
 class BotnetCNNLSTM(nn.Module):
-    def __init__(self, input_dim, dropout=0.3):
+    def __init__(self, input_dim, num_classes, dropout=0.3):
         super().__init__()
         self.conv1 = nn.Conv1d(input_dim, 64, kernel_size=3, padding=1)
         self.conv2 = nn.Conv1d(64, 128, kernel_size=3, padding=1)
@@ -25,7 +25,7 @@ class BotnetCNNLSTM(nn.Module):
             nn.Linear(256, 64),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(64, 1)
+            nn.Linear(64, num_classes)
         )
 
     def forward(self, x):
@@ -38,4 +38,4 @@ class BotnetCNNLSTM(nn.Module):
         x = x.permute(0, 2, 1)                  # (batch, seq_len//2, 128)
         x, _ = self.lstm(x)
         x = x[:, -1, :]                          # last time step
-        return self.classifier(x).squeeze(-1)
+        return self.classifier(x)
